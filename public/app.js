@@ -67,6 +67,13 @@ const el = {
   newUserPin: document.getElementById('newUserPin'),
   createUserBtn: document.getElementById('createUserBtn'),
 
+  // Shared users directory (org-mode)
+  orgUsersImportInput: document.getElementById('orgUsersImportInput'),
+  orgUsersExportBtn: document.getElementById('orgUsersExportBtn'),
+  orgUsersStatus: document.getElementById('orgUsersStatus'),
+  orgMasterPin: document.getElementById('orgMasterPin'),
+  orgSetMasterBtn: document.getElementById('orgSetMasterBtn'),
+
   // Legacy Excel import (inside Settings)
   fileInput: document.getElementById('fileInput'),
   dropzone: document.getElementById('dropzone'),
@@ -85,6 +92,54 @@ const el = {
 function setStatus(message, tone = 'muted') {
   el.status.className = `status ${tone}`;
   el.status.textContent = message;
+}
+
+function setOrgStatus() {
+  if (!el.orgUsersStatus) return;
+  const org = loadOrgUsersState();
+  const master = loadOrgMaster();
+  if (!org.enabled) {
+    el.orgUsersStatus.value = 'Directory condivisa: disattiva (usa solo utenti locali)';
+    return;
+  }
+  const usersCount = (org.users ?? []).length;
+  const upd = org.updatedAt ? new Date(org.updatedAt).toLocaleString() : 'n/d';
+  const masterTxt = master.enabled ? 'PC master: SI' : 'PC master: NO (sola lettura)';
+  el.orgUsersStatus.value = `Directory condivisa: attiva • utenti: ${usersCount} • aggiornamento: ${upd} • ${masterTxt}`;
+}
+
+function setAdminControlsEnabled(enabled) {
+  // Hide/disable admin-only destructive controls when in org-mode and not master.
+  const disable = !enabled;
+  if (el.bootstrapAdminBtn) el.bootstrapAdminBtn.disabled = disable;
+  if (el.createUserBtn) el.createUserBtn.disabled = disable;
+  if (el.newUserName) el.newUserName.disabled = disable;
+  if (el.newUserRole) el.newUserRole.disabled = disable;
+  if (el.newUserPin) el.newUserPin.disabled = disable;
+  if (el.impersonateSelect) el.impersonateSelect.disabled = disable;
+  if (el.stopImpersonateBtn) el.stopImpersonateBtn.disabled = disable;
+  if (el.shareAllBackupBtn) el.shareAllBackupBtn.disabled = disable;
+  if (el.orgUsersExportBtn) el.orgUsersExportBtn.disabled = disable;
+  if (el.orgSetMasterBtn) el.orgSetMasterBtn.disabled = disable;
+  if (el.orgMasterPin) el.orgMasterPin.disabled = disable;
+}
+
+async function verifyPinAgainstRecord(username, pin, record) {
+  const provided = String(pin ?? '').trim();
+  const requiredHash = record?.pinHash ?? null;
+  if (!requiredHash) {
+    // Backward compat: if no pinHash exists, allow empty pin.
+    return provided.length === 0;
+  }
+  if (!provided) return false;
+  const computed = await sha256Hex(`${normalizeUser(username)}:${provided}`);
+  return constantTimeEqual(computed, requiredHash);
+}
+
+function refreshOrgModeUi() {
+  setOrgStatus();
+  // If org-mode is enabled and this device is not master, lock user management.
+  setAdminControlsEnabled(canManageUsers());
 }
 
 // PWA install prompt
@@ -133,6 +188,8 @@ if ('serviceWorker' in navigator) {
  */
 const STORAGE_PREFIX = 'cc.crm.v1.';
 const USERS_KEY = `${STORAGE_PREFIX}users`;
+const ORG_USERS_KEY = `${STORAGE_PREFIX}orgUsers`;
+const ORG_MASTER_KEY = `${STORAGE_PREFIX}orgMaster`;
 
 function normalizeUser(u) {
   return String(u ?? '').trim().toLowerCase();
@@ -151,6 +208,78 @@ function loadUsers() {
   } catch {
     return [];
   }
+}
+
+function loadOrgUsersState() {
+  const raw = localStorage.getItem(ORG_USERS_KEY);
+  if (!raw) return { enabled: false, users: [], updatedAt: null };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: !!parsed?.enabled,
+      updatedAt: parsed?.updatedAt ?? null,
+      // users: [{ username, role, pinHash, createdAt }]
+      users: Array.isArray(parsed?.users) ? parsed.users : []
+    };
+  } catch {
+    return { enabled: false, users: [], updatedAt: null };
+  }
+}
+
+function saveOrgUsersState(state) {
+  localStorage.setItem(
+    ORG_USERS_KEY,
+    JSON.stringify({
+      enabled: !!state?.enabled,
+      updatedAt: state?.updatedAt ?? nowIso(),
+      users: Array.isArray(state?.users) ? state.users : []
+    })
+  );
+}
+
+function loadOrgMaster() {
+  const raw = localStorage.getItem(ORG_MASTER_KEY);
+  if (!raw) return { enabled: false, pinHash: null, enabledAt: null };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: !!parsed?.enabled,
+      pinHash: parsed?.pinHash ?? null,
+      enabledAt: parsed?.enabledAt ?? null
+    };
+  } catch {
+    return { enabled: false, pinHash: null, enabledAt: null };
+  }
+}
+
+function saveOrgMaster(master) {
+  localStorage.setItem(
+    ORG_MASTER_KEY,
+    JSON.stringify({
+      enabled: !!master?.enabled,
+      pinHash: master?.pinHash ?? null,
+      enabledAt: master?.enabledAt ?? nowIso()
+    })
+  );
+}
+
+function sha256Hex(text) {
+  const enc = new TextEncoder().encode(String(text ?? ''));
+  return crypto.subtle.digest('SHA-256', enc).then((buf) => {
+    const bytes = new Uint8Array(buf);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  });
+}
+
+function constantTimeEqual(a, b) {
+  const aa = String(a ?? '');
+  const bb = String(b ?? '');
+  if (aa.length !== bb.length) return false;
+  let out = 0;
+  for (let i = 0; i < aa.length; i++) out |= aa.charCodeAt(i) ^ bb.charCodeAt(i);
+  return out === 0;
 }
 
 function saveUsers(users) {
@@ -172,13 +301,55 @@ function ensureUsersInvariant(users) {
   return Array.from(map.values()).sort((a, b) => a.username.localeCompare(b.username));
 }
 
+function ensureOrgUsersInvariant(users) {
+  // Like ensureUsersInvariant, but keeps pinHash when present
+  const map = new Map();
+  for (const u of users ?? []) {
+    const username = normalizeUser(u?.username);
+    if (!username) continue;
+    map.set(username, {
+      username,
+      role: u?.role === 'admin' ? 'admin' : 'standard',
+      pinHash: u?.pinHash ?? null,
+      createdAt: u?.createdAt ?? nowIso()
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
+
 function getUserRecord(username) {
   const users = loadUsers();
   return users.find((u) => u.username === normalizeUser(username)) ?? null;
 }
 
+function getAnyUserRecord(username) {
+  const u = normalizeUser(username);
+  const org = loadOrgUsersState();
+  if (org.enabled) {
+    const hit = (org.users ?? []).find((x) => normalizeUser(x?.username) === u);
+    if (hit) return hit;
+  }
+  return getUserRecord(u);
+}
+
 function hasAnyAdmin() {
   return loadUsers().some((u) => u.role === 'admin');
+}
+
+function orgModeEnabled() {
+  return loadOrgUsersState().enabled;
+}
+
+function isOrgMasterUnlocked() {
+  const org = loadOrgUsersState();
+  if (!org.enabled) return true; // if no org-mode, behave as before
+  const master = loadOrgMaster();
+  return !!master.enabled;
+}
+
+function canManageUsers() {
+  // If org-mode is enabled, only the PC that enabled master can edit users.
+  return isOrgMasterUnlocked();
 }
 
 function loadDb(user) {
@@ -346,6 +517,24 @@ function checkPin(user, pin) {
 
 function refreshUserSelect() {
   if (!el.userSelect) return;
+  // In org-mode, user list comes from a shared directory snapshot (read-only)
+  if (orgModeEnabled()) {
+    const org = loadOrgUsersState();
+    const users = ensureOrgUsersInvariant(org.users);
+    el.userSelect.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = users.length ? '— seleziona —' : '— nessun utente —';
+    el.userSelect.appendChild(opt0);
+    for (const u of users) {
+      const opt = document.createElement('option');
+      opt.value = u.username;
+      opt.textContent = `${u.username}${u.role === 'admin' ? ' (admin)' : ''}`;
+      el.userSelect.appendChild(opt);
+    }
+    return;
+  }
+
   const users = ensureUsersInvariant(loadUsers());
   // Persist normalized version
   saveUsers(users);
@@ -364,6 +553,7 @@ function refreshUserSelect() {
 }
 
 function createUser({ username, role = 'standard', pin = '' }) {
+  if (orgModeEnabled() && !canManageUsers()) throw new Error('Directory condivisa attiva: utenti in sola lettura su questo PC');
   const u = normalizeUser(username);
   if (!u) throw new Error('Username vuoto');
   const users = ensureUsersInvariant(loadUsers());
@@ -377,6 +567,7 @@ function createUser({ username, role = 'standard', pin = '' }) {
 }
 
 function deleteUser(username) {
+  if (orgModeEnabled() && !canManageUsers()) throw new Error('Directory condivisa attiva: utenti in sola lettura su questo PC');
   const u = normalizeUser(username);
   if (!u) return;
   if (u === activeUser) throw new Error('Non puoi eliminare l’utente attivo');
@@ -397,6 +588,7 @@ function deleteUser(username) {
 }
 
 function resetUserPin(username) {
+  if (orgModeEnabled() && !canManageUsers()) throw new Error('Directory condivisa attiva: utenti in sola lettura su questo PC');
   const u = normalizeUser(username);
   if (!u) return;
   localStorage.removeItem(pinKey(u));
@@ -408,9 +600,13 @@ function refreshAdminPanel() {
   el.adminUsersPanel.style.display = visible ? '' : 'none';
   if (!visible) return;
 
+  refreshOrgModeUi();
+
   // Impersonation select
   if (el.impersonateSelect) {
-    const users = ensureUsersInvariant(loadUsers());
+    const users = orgModeEnabled()
+      ? ensureOrgUsersInvariant(loadOrgUsersState().users)
+      : ensureUsersInvariant(loadUsers());
     el.impersonateSelect.innerHTML = '';
     for (const u of users) {
       const opt = document.createElement('option');
@@ -1414,6 +1610,7 @@ function showAuth() {
   el.activeUser.textContent = '';
   setStatus('Non autenticato.');
   refreshUserSelect();
+  refreshOrgModeUi();
 }
 
 el.loginBtn?.addEventListener('click', () => {
@@ -1423,7 +1620,27 @@ el.loginBtn?.addEventListener('click', () => {
     setStatus('Inserisci un nome utente.', 'muted');
     return;
   }
-  // If registry exists, require the user to exist
+
+  // If org directory is enabled: user list is read-only and comes from org users.
+  if (orgModeEnabled()) {
+    const org = loadOrgUsersState();
+    const rec = (org.users ?? []).find((u) => u.username === user) ?? null;
+    if (!rec) {
+      setStatus('Utente non presente nella directory condivisa. Chiedi al PC principale di crearlo.', 'muted');
+      return;
+    }
+    verifyPinAgainstRecord(user, pin, rec).then((ok) => {
+      if (!ok) {
+        setStatus('PIN errato.', 'muted');
+        return;
+      }
+      setStatus(`Accesso OK: ${user}`);
+      setActiveUser(user);
+    });
+    return;
+  }
+
+  // Local registry (legacy behavior)
   const registry = ensureUsersInvariant(loadUsers());
   if (registry.length && !registry.some((u) => u.username === user)) {
     setStatus('Utente non presente. Chiedi all’Admin di crearlo.', 'muted');
@@ -1452,6 +1669,96 @@ el.loginBtn?.addEventListener('click', () => {
 el.userSelect?.addEventListener('change', () => {
   const v = normalizeUser(el.userSelect.value);
   if (v) el.username.value = v;
+});
+
+// -----------------------------
+// Shared users directory (offline org-mode)
+// -----------------------------
+
+function downloadOrgJson(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportOrgUsersDirectory() {
+  if (!canManageUsers()) {
+    setStatus('Su questo PC la directory utenti è in sola lettura: non puoi esportare.', 'muted');
+    return;
+  }
+
+  // Source of truth: local users list + local pin storage
+  const local = ensureUsersInvariant(loadUsers());
+  const outUsers = [];
+  for (const u of local) {
+    const pin = getUserPin(u.username) ?? '';
+    const pinHash = pin ? await sha256Hex(`${u.username}:${pin}`) : null;
+    outUsers.push({ username: u.username, role: u.role, pinHash, createdAt: u.createdAt ?? nowIso() });
+  }
+  const payload = {
+    schema: 1,
+    enabled: true,
+    updatedAt: nowIso(),
+    users: ensureOrgUsersInvariant(outUsers)
+  };
+  downloadOrgJson(`customer-care-users-${isoDate()}.json`, payload);
+  setStatus('Directory utenti esportata (JSON). Mettila nella cartella condivisa e falla importare agli altri PC.', 'ok');
+}
+
+async function importOrgUsersDirectoryFromFile(file) {
+  const text = await file.text();
+  const parsed = JSON.parse(text);
+  const payloadUsers = Array.isArray(parsed?.users) ? parsed.users : [];
+  const normalized = ensureOrgUsersInvariant(payloadUsers);
+  saveOrgUsersState({ enabled: true, users: normalized, updatedAt: parsed?.updatedAt ?? nowIso() });
+
+  // When importing on a non-master device, keep master disabled.
+  saveOrgMaster({ enabled: false, pinHash: null, enabledAt: null });
+
+  refreshUserSelect();
+  refreshOrgModeUi();
+  setStatus('Directory utenti importata. Questo PC è in modalità sola lettura per gli utenti.', 'ok');
+}
+
+el.orgUsersExportBtn?.addEventListener('click', () => {
+  exportOrgUsersDirectory();
+});
+
+el.orgUsersImportInput?.addEventListener('change', async () => {
+  const file = el.orgUsersImportInput.files?.[0];
+  if (!file) return;
+  try {
+    await importOrgUsersDirectoryFromFile(file);
+  } catch {
+    setStatus('File non valido. Assicurati di importare il JSON esportato dal PC principale.', 'muted');
+  } finally {
+    el.orgUsersImportInput.value = '';
+  }
+});
+
+el.orgSetMasterBtn?.addEventListener('click', async () => {
+  const org = loadOrgUsersState();
+  if (!org.enabled) {
+    // Enable org-mode locally even without prior import (master can start from local users)
+    saveOrgUsersState({ enabled: true, users: ensureOrgUsersInvariant(org.users), updatedAt: nowIso() });
+  }
+
+  const masterPin = String(el.orgMasterPin?.value ?? '').trim();
+  if (!masterPin) {
+    setStatus('Inserisci un PIN master.', 'muted');
+    return;
+  }
+
+  const masterHash = await sha256Hex(`master:${masterPin}`);
+  saveOrgMaster({ enabled: true, pinHash: masterHash, enabledAt: nowIso() });
+  refreshOrgModeUi();
+  setStatus('Questo PC è impostato come PC master. Ora puoi gestire utenti ed esportare la directory.', 'ok');
 });
 
 el.bootstrapAdminBtn?.addEventListener('click', () => {
