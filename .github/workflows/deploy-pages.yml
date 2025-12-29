@@ -32,8 +32,9 @@ jobs:
 
       - name: Build
         env:
-          # IMPORTANT: set to your repo name path = /<repo>/
-          VITE_BASE: /customer-care-app/
+          # IMPORTANT: must match the GitHub Pages repo sub-path.
+          # Repo name is "customer-care-app-" so Pages lives under /customer-care-app-/
+          VITE_BASE: /customer-care-app-/
         run: npm run build
 
       - name: Upload artifact

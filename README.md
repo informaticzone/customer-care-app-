@@ -66,3 +66,4 @@ Note importanti per la PWA:
 
 - I dati sono in `localStorage` del browser. Se l’utente cancella i dati del sito, li perde: usa Backup.
 - Se il dataset cresce molto, si può migrare a IndexedDB (più robusto) mantenendo compatibilità di backup.
+
