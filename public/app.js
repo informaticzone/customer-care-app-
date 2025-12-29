@@ -69,6 +69,7 @@ const el = {
 
   // Shared users directory (org-mode)
   orgUsersImportInput: document.getElementById('orgUsersImportInput'),
+  orgUsersImportAuthInput: document.getElementById('orgUsersImportAuthInput'),
   orgUsersExportBtn: document.getElementById('orgUsersExportBtn'),
   orgUsersStatus: document.getElementById('orgUsersStatus'),
   orgMasterPin: document.getElementById('orgMasterPin'),
@@ -1739,6 +1740,19 @@ el.orgUsersImportInput?.addEventListener('change', async () => {
     setStatus('File non valido. Assicurati di importare il JSON esportato dal PC principale.', 'muted');
   } finally {
     el.orgUsersImportInput.value = '';
+  }
+});
+
+// Pre-login import (Accesso screen)
+el.orgUsersImportAuthInput?.addEventListener('change', async () => {
+  const file = el.orgUsersImportAuthInput.files?.[0];
+  if (!file) return;
+  try {
+    await importOrgUsersDirectoryFromFile(file);
+  } catch {
+    setStatus('File non valido. Assicurati di importare il JSON esportato dal PC principale.', 'muted');
+  } finally {
+    el.orgUsersImportAuthInput.value = '';
   }
 });
 
