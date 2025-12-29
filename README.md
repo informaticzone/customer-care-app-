@@ -53,6 +53,17 @@ cd "c:\Users\virgi\OneDrive\AA DOCUMENTI GRUPPO IMBALLAGGI FRANCESCA\customer-ca
 & "C:\Program Files\nodejs\node.exe" ".\node_modules\vite\bin\vite.js" build
 ```
 
+### GitHub Pages (repo: customer-care-app-)
+
+Su GitHub Pages l'app vive sotto il sottopercorso ` /customer-care-app-/ `.
+La build deve quindi usare `VITE_BASE=/customer-care-app-/`.
+
+Se su Windows `node` non è nel PATH, puoi usare lo script:
+
+```powershell
+& "C:\Program Files\nodejs\npm.cmd" run build:pages:win
+```
+
 2) Prendi la cartella `dist/` e pubblicala.
 
 Note importanti per la PWA:

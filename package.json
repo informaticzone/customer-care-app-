@@ -4,15 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite dev",
     "build": "vite build",
-    "build:pages": "set VITE_BASE=/customer-care-app-/ && vite build",
+    "build:pages": "cross-env VITE_BASE=/customer-care-app-/ vite build",
+    "build:pages:win": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:VITE_BASE='/customer-care-app-/'; & 'C:/Program Files/nodejs/node.exe' './node_modules/vite/bin/vite.js' build\"",
     "preview": "vite preview"
   },
   "dependencies": {
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "vite": "^6.0.0"
   }
 }
