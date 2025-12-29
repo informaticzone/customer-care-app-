@@ -1,13 +1,17 @@
 // Simple cache-first service worker for offline support
-const CACHE_NAME = 'customer-care-pwa-v1';
+const CACHE_NAME = 'customer-care-pwa-v2';
+
+// If the app is hosted under a sub-path (e.g. /customer-care-app/),
+// use that as base for pre-cached assets.
+const BASE = new URL(self.registration.scope).pathname;
 const ASSETS = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  `${BASE}`,
+  `${BASE}index.html`,
+  `${BASE}styles.css`,
+  `${BASE}app.js`,
+  `${BASE}manifest.webmanifest`,
+  `${BASE}icons/icon-192.png`,
+  `${BASE}icons/icon-512.png`
 ];
 
 self.addEventListener('install', (event) => {

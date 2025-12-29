@@ -107,6 +107,13 @@ el.installBtn?.addEventListener('click', async () => {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
+      // On GitHub Pages, a stale SW cache is the #1 reason for "works but without styles"
+      // (old HTML points to deleted hashed assets => 404).
+      // We keep SW for LAN/offline installs, but disable it on github.io.
+      const host = String(window.location.hostname || '').toLowerCase();
+      const isGitHubPages = host.endsWith('github.io');
+      if (isGitHubPages) return;
+
       await navigator.serviceWorker.register('./sw.js');
     } catch {
       // ignore
