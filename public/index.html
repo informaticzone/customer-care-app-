@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>Customer Care</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">CC</div>
+      <div>
+        <div class="title">Customer Care</div>
+        <div class="subtitle">Mini‑CRM interno • PWA installabile</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="installBtn" class="btn btn-ghost" hidden>Installa</button>
+      <button id="reloadBtn" class="btn btn-ghost" title="Ricarica">Ricarica</button>
+    </div>
+  </header>
+
+  <main class="container shell">
+    <nav class="sidebar" aria-label="Menu principale">
+      <button class="nav-item" data-route="clients" aria-current="page">Clienti</button>
+      <button class="nav-item" data-route="appointments">Appuntamenti</button>
+      <button class="nav-item" data-route="interactions">Interazioni</button>
+      <button class="nav-item" data-route="insights">Insight</button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-route="settings">Impostazioni</button>
+    </nav>
+
+    <section class="content">
+      <section class="card" id="authCard">
+        <h2>Accesso</h2>
+        <p class="muted">
+          Crea o seleziona un utente. I dati sono separati per utente (mini‑CRM interno).
+        </p>
+
+        <div class="row gap">
+          <div class="field grow">
+            <label for="userSelect">Utenti</label>
+            <select id="userSelect" class="control"></select>
+          </div>
+          <div class="field grow">
+            <label for="username">Utente</label>
+            <input id="username" class="control" placeholder="es. commerciale1" />
+          </div>
+          <div class="field grow">
+            <label for="pin">PIN (opzionale)</label>
+            <input id="pin" class="control" type="password" inputmode="numeric" placeholder="4-8 cifre" />
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="loginBtn" class="btn btn-primary">Entra</button>
+          </div>
+        </div>
+
+        <div class="row gap" style="margin-top:10px">
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="bootstrapAdminBtn" class="btn">Crea Admin (prima volta)</button>
+          </div>
+          <div class="muted" style="align-self:center">Usa questo solo al primo avvio, se non esistono utenti.</div>
+        </div>
+
+        <div id="status" class="status muted">Non autenticato.</div>
+      </section>
+
+      <section class="card" id="routeTitleCard" hidden>
+        <div class="table-head">
+          <h2 id="routeTitle">Clienti</h2>
+          <div class="muted" id="activeUser"></div>
+        </div>
+      </section>
+
+      <section class="card" id="view-clients" hidden>
+        <div class="row gap">
+          <div class="field grow">
+            <label for="clientSearch">Cerca cliente</label>
+            <input id="clientSearch" class="control" type="search" placeholder="Nome, email, telefono, note…" />
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="newClientBtn" class="btn btn-primary">Nuovo cliente</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="clientsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" id="view-appointments" hidden>
+        <div class="row gap">
+          <div class="field">
+            <label for="apptScope">Vista</label>
+            <select id="apptScope" class="control">
+              <option value="future" selected>Futuri</option>
+              <option value="past">Passati</option>
+              <option value="all">Tutti</option>
+            </select>
+          </div>
+          <div class="field grow">
+            <label for="apptSearch">Cerca</label>
+            <input id="apptSearch" class="control" type="search" placeholder="Cliente, tipo, esito, note…" />
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="newApptBtn" class="btn btn-primary">Nuovo appuntamento</button>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:10px">
+          <table class="table" id="apptsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" id="view-interactions" hidden>
+        <div class="row gap">
+          <div class="field">
+            <label for="intScope">Vista</label>
+            <select id="intScope" class="control">
+              <option value="recent" selected>Recenti</option>
+              <option value="all">Tutte</option>
+            </select>
+          </div>
+          <div class="field grow">
+            <label for="intSearch">Cerca</label>
+            <input id="intSearch" class="control" type="search" placeholder="Cliente, canale, esito, tag, note…" />
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="newIntBtn" class="btn btn-primary">Nuova interazione</button>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:10px">
+          <table class="table" id="intsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" id="view-insights" hidden>
+        <div class="row gap">
+          <div class="field">
+            <label for="insScope">Orizzonte</label>
+            <select id="insScope" class="control">
+              <option value="30" selected>Ultimi 30 giorni</option>
+              <option value="90">Ultimi 90 giorni</option>
+              <option value="365">Ultimo anno</option>
+              <option value="all">Tutto</option>
+            </select>
+          </div>
+          <div class="field grow">
+            <label for="insSearch">Cerca cliente</label>
+            <input id="insSearch" class="control" type="search" placeholder="Nome, email, telefono, note…" />
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:10px">
+          <table class="table" id="insightsTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" id="view-settings" hidden>
+        <h2>Impostazioni</h2>
+        <p class="muted">Zona pensata per evolvere l’app: pagine, campi, import/export, backup.</p>
+
+        <div class="row gap">
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="exportBtn" class="btn">Backup (JSON)</button>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <label class="btn">
+              Ripristina (JSON)
+              <input id="importInput" type="file" accept="application/json" hidden />
+            </label>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="resetBtn" class="btn" title="Cancella i dati dell’utente attivo">Reset utente</button>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <h3 style="margin:0 0 10px 0">Invia backup via email</h3>
+        <p class="muted" style="margin-top:0">
+          Su smartphone, se supportato, si apre il pannello di condivisione (mail/WhatsApp/Drive). Su desktop usa un fallback.
+        </p>
+        <div class="row gap">
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="shareMyBackupBtn" class="btn btn-primary">Invia backup (mio)</button>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="shareAllBackupBtn" class="btn" title="Solo Admin">Invia backup (tutti)</button>
+          </div>
+          <div class="field grow">
+            <label for="backupEmailTo">Destinatario</label>
+            <input id="backupEmailTo" class="control" type="email" placeholder="tuoindirizzo@azienda.it" />
+          </div>
+        </div>
+
+        <details>
+          <summary>Gestione utenti (Admin)</summary>
+          <div id="adminUsersPanel" class="muted" style="margin-top:10px">
+            <div class="row gap">
+              <div class="field grow">
+                <label for="impersonateSelect">Operare come (dataset)</label>
+                <select id="impersonateSelect" class="control"></select>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button id="stopImpersonateBtn" class="btn">Torna Admin</button>
+              </div>
+            </div>
+
+            <div class="row gap">
+              <div class="field grow">
+                <label for="newUserName">Nuovo utente</label>
+                <input id="newUserName" class="control" placeholder="es. commerciale2" />
+              </div>
+              <div class="field">
+                <label for="newUserRole">Ruolo</label>
+                <select id="newUserRole" class="control">
+                  <option value="standard" selected>standard</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <div class="field grow">
+                <label for="newUserPin">PIN (opzionale)</label>
+                <input id="newUserPin" class="control" type="password" inputmode="numeric" placeholder="4-8 cifre" />
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button id="createUserBtn" class="btn btn-primary">Crea utente</button>
+              </div>
+            </div>
+
+            <div class="table-wrap" style="margin-top:10px">
+              <table id="usersTable" class="table">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+
+        <details>
+          <summary>Import Excel (legacy)</summary>
+          <p class="muted">Compatibilità con file Excel: utile solo come import iniziale, non come database principale.</p>
+          <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Trascina qui il file Excel">
+            <div class="dropzone-inner">
+              <div class="dropzone-title">Trascina qui il file Excel oppure</div>
+              <label class="btn btn-primary">
+                Scegli file
+                <input id="fileInput" type="file" accept=".xlsx,.xlsm,.xls" hidden />
+              </label>
+              <div class="dropzone-hint muted">Formato supportato: .xlsx / .xlsm / .xls</div>
+            </div>
+          </div>
+
+          <div class="row gap" style="margin-top:10px">
+            <div class="field">
+              <label for="sheetSelect">Foglio</label>
+              <select id="sheetSelect" class="control" disabled></select>
+            </div>
+            <div class="field grow">
+              <label for="searchInput">Cerca (import preview)</label>
+              <input id="searchInput" class="control" type="search" placeholder="Cerca in tutte le colonne…" disabled />
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="downloadCsvBtn" class="btn" disabled>Scarica CSV</button>
+            </div>
+          </div>
+
+          <div class="table-head" style="margin-top:10px">
+            <div class="muted" id="count"></div>
+          </div>
+          <div class="table-wrap">
+            <table id="table" class="table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <footer class="footer muted">
+        PWA offline-first (dati in locale). Per funzionare bene, apri la pagina via server locale (non direttamente da file).
+      </footer>
+    </section>
+  </main>
+
+  <script src="./app.js" type="module"></script>
+</body>
+</html>
