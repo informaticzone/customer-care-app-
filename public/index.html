@@ -317,6 +317,79 @@
         </details>
 
         <details>
+          <summary>Sync PC ↔ Telefono (QR)</summary>
+          <p class="muted">
+            Sincronizzazione gratuita senza server: genera un QR sul PC e scansiona col telefono (o viceversa). Se il backup è grande, verranno generati più QR numerati.
+          </p>
+
+          <div class="row gap">
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="qrSyncExportMyBtn" class="btn btn-primary">Genera QR (mio backup)</button>
+            </div>
+            <div class="field">
+              <label>&nbsp;</label>
+              <button id="qrSyncExportAllBtn" class="btn" title="Solo Admin">Genera QR (tutti)</button>
+            </div>
+            <div class="field grow">
+              <label for="qrSyncStatus">Stato</label>
+              <input id="qrSyncStatus" class="control" readonly placeholder="Pronto" />
+            </div>
+          </div>
+
+          <div class="card" style="margin:12px 0 0 0">
+            <div class="row gap" style="align-items:flex-start">
+              <div class="field grow">
+                <label>QR generato</label>
+                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start">
+                  <canvas id="qrSyncCanvas" width="256" height="256" style="background:#fff; border-radius:12px; padding:10px;"></canvas>
+                  <div class="muted" style="min-width:220px">
+                    <div><b id="qrSyncChunkLabel">—</b></div>
+                    <div style="margin-top:8px">
+                      <button id="qrSyncPrevBtn" class="btn" disabled>←</button>
+                      <button id="qrSyncNextBtn" class="btn" disabled>→</button>
+                    </div>
+                    <div style="margin-top:10px">
+                      <button id="qrSyncCopyChunkBtn" class="btn" disabled>Copia blocco</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin:12px 0 0 0">
+            <h3 style="margin:0 0 8px 0">Importa da QR</h3>
+            <p class="muted" style="margin:0 0 10px 0">
+              Su smartphone verrà richiesta la fotocamera. Su PC puoi usare la webcam se disponibile oppure incollare i blocchi.
+            </p>
+            <div class="row gap">
+              <div class="field">
+                <label>&nbsp;</label>
+                <button id="qrSyncScanStartBtn" class="btn btn-primary">Scansiona</button>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button id="qrSyncScanStopBtn" class="btn" disabled>Stop</button>
+              </div>
+            </div>
+
+            <video id="qrSyncVideo" playsinline style="width:100%; max-width:520px; border-radius:12px; margin-top:10px; display:none;"></video>
+
+            <div class="row gap" style="margin-top:10px">
+              <div class="field grow">
+                <label for="qrSyncPaste">Incolla blocco (fallback)</label>
+                <textarea id="qrSyncPaste" class="control" rows="4" placeholder="Incolla qui il testo copiato (uno o più blocchi), poi premi 'Aggiungi blocco'."></textarea>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button id="qrSyncAddChunkBtn" class="btn">Aggiungi blocco</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details>
           <summary>Import Excel (legacy)</summary>
           <p class="muted">Compatibilità con file Excel: utile solo come import iniziale, non come database principale.</p>
           <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Trascina qui il file Excel">

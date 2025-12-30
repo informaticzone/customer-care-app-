@@ -2,6 +2,7 @@
 // Excel parsing via SheetJS (xlsx). Data stays local (no upload).
 
 import * as XLSX from 'xlsx';
+import QRCode from 'qrcode';
 
 const el = {
   // Auth
@@ -57,6 +58,21 @@ const el = {
   shareAllBackupBtn: document.getElementById('shareAllBackupBtn'),
   backupEmailTo: document.getElementById('backupEmailTo'),
 
+  // Sync PC ↔ Telefono (QR)
+  qrSyncExportMyBtn: document.getElementById('qrSyncExportMyBtn'),
+  qrSyncExportAllBtn: document.getElementById('qrSyncExportAllBtn'),
+  qrSyncStatus: document.getElementById('qrSyncStatus'),
+  qrSyncCanvas: document.getElementById('qrSyncCanvas'),
+  qrSyncChunkLabel: document.getElementById('qrSyncChunkLabel'),
+  qrSyncPrevBtn: document.getElementById('qrSyncPrevBtn'),
+  qrSyncNextBtn: document.getElementById('qrSyncNextBtn'),
+  qrSyncCopyChunkBtn: document.getElementById('qrSyncCopyChunkBtn'),
+  qrSyncScanStartBtn: document.getElementById('qrSyncScanStartBtn'),
+  qrSyncScanStopBtn: document.getElementById('qrSyncScanStopBtn'),
+  qrSyncVideo: document.getElementById('qrSyncVideo'),
+  qrSyncPaste: document.getElementById('qrSyncPaste'),
+  qrSyncAddChunkBtn: document.getElementById('qrSyncAddChunkBtn'),
+
   // Admin user management (Settings)
   adminUsersPanel: document.getElementById('adminUsersPanel'),
   usersTable: document.getElementById('usersTable'),
@@ -93,6 +109,264 @@ const el = {
 function setStatus(message, tone = 'muted') {
   el.status.className = `status ${tone}`;
   el.status.textContent = message;
+}
+
+function setQrSyncStatus(message) {
+  if (!el.qrSyncStatus) return;
+  el.qrSyncStatus.value = message;
+}
+
+// -----------------------------
+// QR Sync (PC ↔ Telefono) — chunked QR export/import
+// -----------------------------
+
+const QR_SYNC_PREFIX = 'CCSYNC1|';
+// Conservative chunk size to make scanning reliable.
+const QR_SYNC_CHUNK_SIZE = 900;
+
+let qrSyncExportChunks = [];
+let qrSyncExportIndex = 0;
+
+let qrSyncScanStream = null;
+let qrSyncScanTimer = null;
+let qrSyncScanned = { total: 0, parts: new Map() };
+
+function base64EncodeUtf8(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+function base64DecodeUtf8(b64) {
+  return decodeURIComponent(escape(atob(b64)));
+}
+
+function chunkString(s, size) {
+  const out = [];
+  for (let i = 0; i < s.length; i += size) out.push(s.slice(i, i + size));
+  return out;
+}
+
+function makeQrChunkEnvelope(payloadStr, idx, total) {
+  const b64 = base64EncodeUtf8(payloadStr);
+  return `${QR_SYNC_PREFIX}${idx}/${total}|${b64}`;
+}
+
+function parseQrChunkEnvelope(text) {
+  const t = String(text ?? '').trim();
+  if (!t.startsWith(QR_SYNC_PREFIX)) return null;
+  const rest = t.slice(QR_SYNC_PREFIX.length);
+  const pipe = rest.indexOf('|');
+  if (pipe < 0) return null;
+  const header = rest.slice(0, pipe);
+  const b64 = rest.slice(pipe + 1);
+  const slash = header.indexOf('/');
+  if (slash < 0) return null;
+  const idx = Number(header.slice(0, slash));
+  const total = Number(header.slice(slash + 1));
+  if (!Number.isFinite(idx) || !Number.isFinite(total) || idx < 1 || total < 1 || idx > total) return null;
+  const payloadStr = base64DecodeUtf8(b64);
+  return { idx, total, payloadStr };
+}
+
+async function renderQrToCanvas(text) {
+  if (!el.qrSyncCanvas) return;
+  await QRCode.toCanvas(el.qrSyncCanvas, text, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    scale: 6,
+    color: { dark: '#0b1220', light: '#ffffff' }
+  });
+}
+
+async function showExportChunk(i) {
+  if (!qrSyncExportChunks.length) {
+    setQrSyncStatus('Nessun QR generato');
+    return;
+  }
+  qrSyncExportIndex = Math.max(0, Math.min(i, qrSyncExportChunks.length - 1));
+  const label = `${qrSyncExportIndex + 1}/${qrSyncExportChunks.length}`;
+  if (el.qrSyncChunkLabel) el.qrSyncChunkLabel.textContent = `Blocco ${label}`;
+  if (el.qrSyncPrevBtn) el.qrSyncPrevBtn.disabled = qrSyncExportIndex === 0;
+  if (el.qrSyncNextBtn) el.qrSyncNextBtn.disabled = qrSyncExportIndex === qrSyncExportChunks.length - 1;
+  if (el.qrSyncCopyChunkBtn) el.qrSyncCopyChunkBtn.disabled = false;
+  setQrSyncStatus(`QR pronto: blocco ${label}`);
+  await renderQrToCanvas(qrSyncExportChunks[qrSyncExportIndex]);
+}
+
+function resetScanBuffer() {
+  qrSyncScanned = { total: 0, parts: new Map() };
+}
+
+function getScanProgressText() {
+  const total = qrSyncScanned.total;
+  const got = qrSyncScanned.parts.size;
+  if (!total) return `Ricevuti: ${got} blocchi`;
+  return `Ricevuti: ${got}/${total}`;
+}
+
+function addScannedChunk(rawText) {
+  const parsed = parseQrChunkEnvelope(rawText);
+  if (!parsed) {
+    setQrSyncStatus('QR non riconosciuto');
+    return;
+  }
+  if (!qrSyncScanned.total) qrSyncScanned.total = parsed.total;
+  if (qrSyncScanned.total !== parsed.total) {
+    setQrSyncStatus('Blocchi incompatibili (totale diverso). Ricomincia.');
+    return;
+  }
+  if (!qrSyncScanned.parts.has(parsed.idx)) {
+    qrSyncScanned.parts.set(parsed.idx, parsed.payloadStr);
+  }
+  setQrSyncStatus(getScanProgressText());
+}
+
+function tryAssembleScannedPayload() {
+  const total = qrSyncScanned.total;
+  if (!total) return null;
+  if (qrSyncScanned.parts.size !== total) return null;
+  return Array.from({ length: total }, (_, i) => qrSyncScanned.parts.get(i + 1)).join('');
+}
+
+function buildQrExportChunksFromPayload(payload) {
+  const json = JSON.stringify(payload);
+  const parts = chunkString(json, QR_SYNC_CHUNK_SIZE);
+  const total = parts.length;
+  return parts.map((p, i) => makeQrChunkEnvelope(p, i + 1, total));
+}
+
+async function startQrScan() {
+  if (!el.qrSyncVideo) return;
+  resetScanBuffer();
+  setQrSyncStatus('Avvio fotocamera…');
+
+  if (typeof window.BarcodeDetector === 'undefined') {
+    setQrSyncStatus('Scanner non disponibile su questo dispositivo. Usa “Incolla blocco”.');
+    return;
+  }
+
+  const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+  qrSyncScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  el.qrSyncVideo.srcObject = qrSyncScanStream;
+  el.qrSyncVideo.style.display = '';
+  await el.qrSyncVideo.play();
+
+  if (el.qrSyncScanStartBtn) el.qrSyncScanStartBtn.disabled = true;
+  if (el.qrSyncScanStopBtn) el.qrSyncScanStopBtn.disabled = false;
+  setQrSyncStatus('Inquadra il QR…');
+
+  qrSyncScanTimer = setInterval(async () => {
+    try {
+      const barcodes = await detector.detect(el.qrSyncVideo);
+      if (!barcodes?.length) return;
+      for (const b of barcodes) {
+        if (b?.rawValue) addScannedChunk(b.rawValue);
+      }
+      const assembled = tryAssembleScannedPayload();
+      if (assembled) {
+        stopQrScan();
+        await importQrPayloadString(assembled);
+      }
+    } catch {
+      // ignore per-frame errors
+    }
+  }, 350);
+}
+
+function stopQrScan() {
+  if (qrSyncScanTimer) {
+    clearInterval(qrSyncScanTimer);
+    qrSyncScanTimer = null;
+  }
+  if (qrSyncScanStream) {
+    for (const t of qrSyncScanStream.getTracks()) t.stop();
+    qrSyncScanStream = null;
+  }
+  if (el.qrSyncVideo) {
+    el.qrSyncVideo.pause?.();
+    el.qrSyncVideo.srcObject = null;
+    el.qrSyncVideo.style.display = 'none';
+  }
+  if (el.qrSyncScanStartBtn) el.qrSyncScanStartBtn.disabled = false;
+  if (el.qrSyncScanStopBtn) el.qrSyncScanStopBtn.disabled = true;
+}
+
+async function exportQrMyBackup() {
+  if (!isLoggedIn()) {
+    setQrSyncStatus('Fai login prima di esportare');
+    return;
+  }
+  const payload = {
+    schema: 'cc-backup',
+    kind: 'single-user',
+    user: activeUser,
+    users: ensureUsersInvariant(loadUsers()),
+    db: loadDb(activeUser),
+    createdAt: nowIso()
+  };
+  qrSyncExportChunks = buildQrExportChunksFromPayload(payload);
+  await showExportChunk(0);
+}
+
+async function exportQrAllBackup() {
+  if (!isLoggedIn() || !isAdmin()) {
+    setQrSyncStatus('Solo Admin');
+    return;
+  }
+  const users = ensureUsersInvariant(loadUsers());
+  const all = {};
+  for (const u of users) all[u.username] = loadDb(u.username);
+  const payload = {
+    schema: 'cc-backup',
+    kind: 'all-users',
+    user: activeUser,
+    users,
+    all,
+    createdAt: nowIso()
+  };
+  qrSyncExportChunks = buildQrExportChunksFromPayload(payload);
+  await showExportChunk(0);
+}
+
+async function importQrPayloadString(payloadStr) {
+  const payload = JSON.parse(payloadStr);
+  if (payload?.schema !== 'cc-backup') throw new Error('Schema non riconosciuto');
+
+  if (payload?.kind === 'all-users' && payload?.all) {
+    const users = Array.isArray(payload?.users) ? ensureUsersInvariant(payload.users) : [];
+    saveUsers(users);
+    for (const [u, userDb] of Object.entries(payload.all)) {
+      const username = normalizeUser(u);
+      if (!username) continue;
+      localStorage.setItem(userKey(username), JSON.stringify(userDb ?? defaultDb()));
+    }
+    if (activeUser) {
+      state.db = loadDb(activeUser);
+      renderRoute();
+    }
+    refreshUserSelect();
+    setQrSyncStatus('Import completato ✅ (tutti)');
+    setStatus('Sync QR completata: importati tutti gli utenti.', 'ok');
+    return;
+  }
+
+  // single-user
+  const targetUser = normalizeUser(payload?.user);
+  if (!targetUser) throw new Error('Backup senza utente');
+  localStorage.setItem(userKey(targetUser), JSON.stringify(payload?.db ?? defaultDb()));
+  if (payload?.users && Array.isArray(payload.users)) {
+    try {
+      saveUsers(ensureUsersInvariant(payload.users));
+    } catch {
+      // ignore
+    }
+  }
+  if (activeUser === targetUser) {
+    state.db = loadDb(activeUser);
+    renderRoute();
+  }
+  refreshUserSelect();
+  setQrSyncStatus('Import completato ✅');
+  setStatus('Sync QR completata: dati importati.', 'ok');
 }
 
 function setOrgStatus() {
@@ -681,6 +955,50 @@ function refreshAdminPanel() {
   }
   tbody.appendChild(frag);
 }
+// QR sync UI wiring
+el.qrSyncExportMyBtn?.addEventListener('click', () => {
+  exportQrMyBackup().catch(() => setQrSyncStatus('Errore export'));
+});
+el.qrSyncExportAllBtn?.addEventListener('click', () => {
+  exportQrAllBackup().catch(() => setQrSyncStatus('Errore export'));
+});
+el.qrSyncPrevBtn?.addEventListener('click', () => {
+  showExportChunk(qrSyncExportIndex - 1);
+});
+el.qrSyncNextBtn?.addEventListener('click', () => {
+  showExportChunk(qrSyncExportIndex + 1);
+});
+el.qrSyncCopyChunkBtn?.addEventListener('click', async () => {
+  const txt = qrSyncExportChunks[qrSyncExportIndex] ?? '';
+  try {
+    await navigator.clipboard.writeText(txt);
+    setQrSyncStatus(`Copiato: ${qrSyncExportIndex + 1}/${qrSyncExportChunks.length}`);
+  } catch {
+    setQrSyncStatus('Impossibile copiare (permessi)');
+  }
+});
+el.qrSyncScanStartBtn?.addEventListener('click', () => {
+  startQrScan().catch(() => setQrSyncStatus('Impossibile avviare scanner (permessi fotocamera?)'));
+});
+el.qrSyncScanStopBtn?.addEventListener('click', () => {
+  stopQrScan();
+  setQrSyncStatus('Scanner fermato');
+});
+el.qrSyncAddChunkBtn?.addEventListener('click', () => {
+  const txt = String(el.qrSyncPaste?.value ?? '').trim();
+  if (!txt) {
+    setQrSyncStatus('Incolla un blocco');
+    return;
+  }
+  const lines = txt.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  for (const line of lines) addScannedChunk(line);
+  const assembled = tryAssembleScannedPayload();
+  if (assembled) {
+    importQrPayloadString(assembled).catch(() => setQrSyncStatus('Errore import'));
+    resetScanBuffer();
+  }
+  if (el.qrSyncPaste) el.qrSyncPaste.value = '';
+});
 
 function refreshSettingsControls() {
   if (el.shareAllBackupBtn) {
