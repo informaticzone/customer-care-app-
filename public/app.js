@@ -1251,6 +1251,21 @@ function isInPersonAppointment(appt) {
   return t.includes('visita') || t.includes('in persona') || t.includes('in-person') || t.includes('sede');
 }
 
+function parseAttendeesInput(text) {
+  // Accept commas/semicolons/newlines. Keep as lowercased tokens.
+  return String(text ?? '')
+    .split(/[\n,;]+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((x) => x.toLowerCase());
+}
+
+function formatAttendeesForDetails(attendees) {
+  const list = Array.isArray(attendees) ? attendees : [];
+  if (!list.length) return null;
+  return `Persone/contatti: ${list.join(', ')}`;
+}
+
 function buildGoogleCalendarUrlFromAppointment(appt, customer) {
   const startIso = appt?.when ?? null;
   if (!startIso) return null;
@@ -1265,8 +1280,14 @@ function buildGoogleCalendarUrlFromAppointment(appt, customer) {
   const titleParts = [appt?.type, customerName].filter(Boolean);
   const text = titleParts.length ? titleParts.join(' - ') : 'Appuntamento';
 
+  const includeCustomerContact = appt?.includeCustomerContact !== false;
+  const attendeesLine = formatAttendeesForDetails(appt?.attendees);
+
   const details = [
     customerName ? `Cliente: ${customerName}` : null,
+    includeCustomerContact && customer?.email ? `Email: ${customer.email}` : null,
+    includeCustomerContact && customer?.phone ? `Telefono: ${customer.phone}` : null,
+    attendeesLine,
     appt?.topic ? `Argomento: ${appt.topic}` : null,
     appt?.outcome ? `Esito: ${appt.outcome}` : null,
     appt?.nextActions ? `Azioni successive: ${appt.nextActions}` : null,
@@ -1280,7 +1301,7 @@ function buildGoogleCalendarUrlFromAppointment(appt, customer) {
   // Otherwise, keep a useful contact "hint".
   const location = isInPersonAppointment(appt)
     ? (customerName || '')
-    : [customer?.email, customer?.phone].filter(Boolean).join(' • ');
+    : (includeCustomerContact ? [customer?.email, customer?.phone].filter(Boolean).join(' • ') : '');
 
   const url = new URL('https://calendar.google.com/calendar/render');
   url.searchParams.set('action', 'TEMPLATE');
@@ -1293,6 +1314,17 @@ function buildGoogleCalendarUrlFromAppointment(appt, customer) {
   // Note: Google doesn't document full API for render templates; "add" is widely supported.
   // If unsupported by the current Calendar UI, it will be ignored gracefully.
   url.searchParams.set('add', 'popup:0');
+
+  // Hint invitees/extra contacts.
+  // Google Calendar templates support "add" for some entities; when ignored it stays harmless.
+  // We keep it also in details so it's always visible.
+  if (Array.isArray(appt?.attendees) && appt.attendees.length) {
+    try {
+      url.searchParams.set('add', appt.attendees.join(','));
+    } catch {
+      // ignore
+    }
+  }
 
   return url.toString();
 }
@@ -1500,6 +1532,9 @@ async function createAppointment() {
   if (!parsedWhen) return;
   const type = prompt('Tipo (chiamata/visita/follow-up):', 'chiamata') ?? '';
   const topic = prompt('Argomento (opzionale):', '') ?? '';
+  const includeCustomerContact = confirm('Vuoi includere email/telefono del cliente nell\'appuntamento (anche per Google Calendar)?\n\nOK = si\nAnnulla = no');
+  const attendeesText = prompt('Aggiungi persone / contatti (email o numeri). Separali con virgola o a capo (opzionale):', '') ?? '';
+  const attendees = parseAttendeesInput(attendeesText);
   const outcome = prompt('Esito (opzionale):', '') ?? '';
   const nextActions = prompt('Azioni successive (opzionale):', '') ?? '';
   const notes = prompt('Note (opzionale):', '') ?? '';
@@ -1509,6 +1544,8 @@ async function createAppointment() {
     customerId,
     when: parsedWhen,
     type,
+    includeCustomerContact,
+    attendees,
     topic,
     outcome,
     nextActions,
@@ -1531,6 +1568,15 @@ async function editAppointment(id) {
   if (!parsedWhen) return;
   const type = prompt('Tipo:', a.type ?? '') ?? a.type;
   const topic = prompt('Argomento:', a.topic ?? '') ?? a.topic;
+  const includeCustomerContact = confirm(
+    `Includere email/telefono del cliente nell\'appuntamento (anche per Google Calendar)?\n\nOK = si\nAnnulla = no\n\n(Attuale: ${a.includeCustomerContact === false ? 'NO' : 'SI'})`
+  );
+  const attendeesText = prompt(
+    'Aggiungi persone / contatti (email o numeri). Separali con virgola o a capo:',
+    Array.isArray(a.attendees) ? a.attendees.join(', ') : ''
+  );
+  if (attendeesText == null) return;
+  const attendees = parseAttendeesInput(attendeesText);
   const outcome = prompt('Esito:', a.outcome ?? '') ?? a.outcome;
   const nextActions = prompt('Azioni successive:', a.nextActions ?? '') ?? a.nextActions;
   const notes = prompt('Note:', a.notes ?? '') ?? a.notes;
@@ -1539,6 +1585,8 @@ async function editAppointment(id) {
     customerId,
     when: parsedWhen,
     type,
+    includeCustomerContact,
+    attendees,
     topic,
     outcome,
     nextActions,
