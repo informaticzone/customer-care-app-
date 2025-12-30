@@ -1221,6 +1221,65 @@ function deleteCustomer(id) {
 }
 
 // -----------------------------
+// Google Calendar (Option A: open prefilled event link)
+// -----------------------------
+
+function formatGoogleCalDate(iso) {
+  // Google Calendar wants UTC: YYYYMMDDTHHMMSSZ
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  const y = d.getUTCFullYear();
+  const m = pad(d.getUTCMonth() + 1);
+  const day = pad(d.getUTCDate());
+  const hh = pad(d.getUTCHours());
+  const mm = pad(d.getUTCMinutes());
+  const ss = pad(d.getUTCSeconds());
+  return `${y}${m}${day}T${hh}${mm}${ss}Z`;
+}
+
+function addMinutes(iso, minutes) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMinutes(d.getMinutes() + minutes);
+  return d.toISOString();
+}
+
+function buildGoogleCalendarUrlFromAppointment(appt, customer) {
+  const startIso = appt?.when ?? null;
+  if (!startIso) return null;
+  const endIso = addMinutes(startIso, 60) ?? startIso;
+
+  const start = formatGoogleCalDate(startIso);
+  const end = formatGoogleCalDate(endIso);
+  if (!start || !end) return null;
+
+  const customerName = customer?.name ?? '';
+  const titleParts = [appt?.type, customerName].filter(Boolean);
+  const text = titleParts.length ? titleParts.join(' - ') : 'Appuntamento';
+
+  const details = [
+    customerName ? `Cliente: ${customerName}` : null,
+    appt?.topic ? `Argomento: ${appt.topic}` : null,
+    appt?.outcome ? `Esito: ${appt.outcome}` : null,
+    appt?.nextActions ? `Azioni successive: ${appt.nextActions}` : null,
+    appt?.notes ? `Note: ${appt.notes}` : null
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const location = [customer?.email, customer?.phone].filter(Boolean).join(' • ');
+
+  const url = new URL('https://calendar.google.com/calendar/render');
+  url.searchParams.set('action', 'TEMPLATE');
+  url.searchParams.set('text', text);
+  url.searchParams.set('dates', `${start}/${end}`);
+  if (details) url.searchParams.set('details', details);
+  if (location) url.searchParams.set('location', location);
+  return url.toString();
+}
+
+// -----------------------------
 // Appointments (MVP)
 // -----------------------------
 
@@ -1259,15 +1318,17 @@ async function pickDateTimeIso({ title, initialIso } = {}) {
   dlg.style.maxWidth = '520px';
   dlg.style.width = 'calc(100% - 24px)';
   dlg.innerHTML = `
-    <form method="dialog" style="display:flex; flex-direction:column; gap:12px;">
-      <h3 style="margin:0;">${(title || 'Seleziona data e ora').replace(/</g, '&lt;')}</h3>
-      <label class="muted" for="cc-dt">Data e ora</label>
-      <input id="cc-dt" class="control" type="datetime-local" required />
-      <div style="display:flex; gap:10px; justify-content:flex-end;">
-        <button value="cancel" class="btn">Annulla</button>
-        <button value="ok" class="btn btn-primary">OK</button>
-      </div>
-    </form>
+    <div class="cc-dialog">
+      <form method="dialog" style="display:flex; flex-direction:column; gap:12px;">
+        <h3 style="margin:0;">${(title || 'Seleziona data e ora').replace(/</g, '&lt;')}</h3>
+        <label class="muted" for="cc-dt">Data e ora</label>
+        <input id="cc-dt" class="control" type="datetime-local" required />
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+          <button value="cancel" class="btn">Annulla</button>
+          <button value="ok" class="btn btn-primary">OK</button>
+        </div>
+      </form>
+    </div>
   `;
   document.body.appendChild(dlg);
 
@@ -1367,12 +1428,28 @@ function renderAppointments() {
     editBtn.className = 'btn';
     editBtn.textContent = 'Modifica';
     editBtn.addEventListener('click', () => editAppointment(a.id));
+
+    const gcalBtn = document.createElement('button');
+    gcalBtn.className = 'btn';
+    gcalBtn.style.marginLeft = '8px';
+    gcalBtn.textContent = 'Google Calendar';
+    gcalBtn.title = 'Aggiungi evento a Google Calendar';
+    gcalBtn.addEventListener('click', () => {
+      const url = buildGoogleCalendarUrlFromAppointment(a, cust);
+      if (!url) {
+        setStatus('Impossibile creare il link calendario per questo appuntamento.', 'muted');
+        return;
+      }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
+
     const delBtn = document.createElement('button');
     delBtn.className = 'btn';
     delBtn.style.marginLeft = '8px';
     delBtn.textContent = 'Elimina';
     delBtn.addEventListener('click', () => deleteAppointment(a.id));
     tdActions.appendChild(editBtn);
+    tdActions.appendChild(gcalBtn);
     tdActions.appendChild(delBtn);
     tr.appendChild(tdActions);
 
