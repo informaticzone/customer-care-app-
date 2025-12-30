@@ -19,6 +19,14 @@ const el = {
   // Navigation
   navItems: Array.from(document.querySelectorAll('.nav-item')),
 
+  // Home
+  viewHome: document.getElementById('view-home'),
+  homeNewApptBtn: document.getElementById('homeNewApptBtn'),
+  homeNewIntBtn: document.getElementById('homeNewIntBtn'),
+  homeNewClientBtn: document.getElementById('homeNewClientBtn'),
+  homeNextAppts: document.getElementById('homeNextAppts'),
+  homeLastInts: document.getElementById('homeLastInts'),
+
   // Clients
   viewClients: document.getElementById('view-clients'),
   clientsTable: document.getElementById('clientsTable'),
@@ -723,8 +731,7 @@ function setActiveUser(user) {
   el.authCard.hidden = true;
   el.routeTitleCard.hidden = false;
   // default route
-  navigate('clients');
-  renderClients();
+  navigate('home');
   refreshAdminPanel();
   refreshSettingsControls();
 }
@@ -1025,6 +1032,7 @@ function refreshSettingsControls() {
 // -----------------------------
 
 const ROUTES = {
+  home: { title: 'Home', el: () => el.viewHome },
   clients: { title: 'Clienti', el: () => el.viewClients },
   appointments: { title: 'Appuntamenti', el: () => el.viewAppointments },
   interactions: { title: 'Interazioni', el: () => el.viewInteractions },
@@ -1033,6 +1041,7 @@ const ROUTES = {
 };
 
 function hideAllViews() {
+  if (el.viewHome) el.viewHome.hidden = true;
   el.viewClients.hidden = true;
   el.viewAppointments.hidden = true;
   el.viewInteractions.hidden = true;
@@ -1042,7 +1051,7 @@ function hideAllViews() {
 
 function navigate(route) {
   if (!isLoggedIn()) return;
-  const r = ROUTES[route] ?? ROUTES.clients;
+  const r = ROUTES[route] ?? ROUTES.home;
   hideAllViews();
   r.el().hidden = false;
   el.routeTitle.textContent = r.title;
@@ -1051,12 +1060,68 @@ function navigate(route) {
   }
 
   // route-specific refresh
+  if (route === 'home') renderHome();
   if (route === 'clients') renderClients();
   if (route === 'appointments') renderAppointments();
   if (route === 'interactions') renderInteractions();
   if (route === 'insights') renderInsights();
   if (route === 'settings') refreshAdminPanel();
   if (route === 'settings') refreshSettingsControls();
+}
+
+function formatMiniRow(title, right) {
+  const t = String(title ?? '');
+  const r = String(right ?? '');
+  return `<div style="display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08);">
+    <div style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t.replace(/</g, '&lt;')}</div>
+    <div style="white-space:nowrap; opacity:.85">${r.replace(/</g, '&lt;')}</div>
+  </div>`;
+}
+
+function renderHome() {
+  if (!isLoggedIn()) return;
+  if (!el.viewHome) return;
+
+  const next = (db?.appointments ?? [])
+    .filter((a) => a?.when && isFuture(a.when))
+    .slice()
+    .sort((a, b) => (a.when ?? '').localeCompare(b.when ?? ''))
+    .slice(0, 6);
+
+  const lastInts = (db?.interactions ?? [])
+    .slice()
+    .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    .slice(0, 6);
+
+  if (el.homeNextAppts) {
+    if (!next.length) {
+      el.homeNextAppts.innerHTML = '<div class="muted">Nessun appuntamento futuro.</div>';
+    } else {
+      el.homeNextAppts.innerHTML = next
+        .map((a) => {
+          const cust = (db?.customers ?? []).find((c) => c.id === a.customerId);
+          const when = a.when ? new Date(a.when).toLocaleString() : '';
+          const title = `${cust?.name ?? '(cliente mancante)'} • ${a.type ?? ''}`.trim();
+          return formatMiniRow(title, when);
+        })
+        .join('');
+    }
+  }
+
+  if (el.homeLastInts) {
+    if (!lastInts.length) {
+      el.homeLastInts.innerHTML = '<div class="muted">Nessuna interazione registrata.</div>';
+    } else {
+      el.homeLastInts.innerHTML = lastInts
+        .map((i) => {
+          const cust = (db?.customers ?? []).find((c) => c.id === i.customerId);
+          const at = i.at ? new Date(i.at).toLocaleString() : '';
+          const title = `${cust?.name ?? '(cliente mancante)'} • ${i.channel ?? ''} • ${i.outcome ?? ''}`.replace(/\s+/g, ' ').trim();
+          return formatMiniRow(title, at);
+        })
+        .join('');
+    }
+  }
 }
 
 for (const b of el.navItems) {
@@ -2358,6 +2423,20 @@ el.bootstrapAdminBtn?.addEventListener('click', () => {
 // Customers events
 el.clientSearch?.addEventListener('input', () => renderClients());
 el.newClientBtn?.addEventListener('click', () => createCustomer());
+
+// Home quick actions
+el.homeNewApptBtn?.addEventListener('click', () => {
+  navigate('appointments');
+  createAppointment();
+});
+el.homeNewIntBtn?.addEventListener('click', () => {
+  navigate('interactions');
+  createInteraction();
+});
+el.homeNewClientBtn?.addEventListener('click', () => {
+  navigate('clients');
+  createCustomer();
+});
 
 // Appointments events
 el.apptScope?.addEventListener('change', () => renderAppointments());

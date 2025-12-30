@@ -27,6 +27,7 @@
 
   <main class="container shell">
     <nav class="sidebar" aria-label="Menu principale">
+      <button class="nav-item" data-route="home" aria-current="false">Home</button>
       <button class="nav-item" data-route="clients" aria-current="page">Clienti</button>
       <button class="nav-item" data-route="appointments">Appuntamenti</button>
       <button class="nav-item" data-route="interactions">Interazioni</button>
@@ -89,6 +90,40 @@
         <div class="table-head">
           <h2 id="routeTitle">Clienti</h2>
           <div class="muted" id="activeUser"></div>
+        </div>
+      </section>
+
+      <section class="card" id="view-home" hidden>
+        <h2>Home</h2>
+        <p class="muted" style="margin-top:0">Riepilogo rapido: cosa fare oggi, prossimi appuntamenti e ultimi contatti.</p>
+
+        <div class="row gap">
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="homeNewApptBtn" class="btn btn-primary">Nuovo appuntamento</button>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="homeNewIntBtn" class="btn">Nuova interazione</button>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="homeNewClientBtn" class="btn">Nuovo cliente</button>
+          </div>
+        </div>
+
+        <div class="row gap" style="margin-top:10px">
+          <div class="field grow">
+            <label>Prossimi appuntamenti</label>
+            <div id="homeNextAppts" class="muted"></div>
+          </div>
+        </div>
+
+        <div class="row gap" style="margin-top:10px">
+          <div class="field grow">
+            <label>Ultime interazioni</label>
+            <div id="homeLastInts" class="muted"></div>
+          </div>
         </div>
       </section>
 
