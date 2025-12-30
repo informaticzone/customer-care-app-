@@ -174,7 +174,8 @@ async function renderQrToCanvas(text) {
 
   // Keep QR at a predictable size (otherwise long payloads can render huge).
   // Larger target improves scan reliability for phone cameras.
-  const targetPx = 420;
+  // (Payload/chunk size unchanged.)
+  const targetPx = 520;
   el.qrSyncCanvas.width = targetPx;
   el.qrSyncCanvas.height = targetPx;
 
