@@ -1245,10 +1245,17 @@ function addMinutes(iso, minutes) {
   return d.toISOString();
 }
 
+function isInPersonAppointment(appt) {
+  const t = String(appt?.type ?? '').toLowerCase();
+  // Heuristic (since we don't yet have a dedicated flag).
+  return t.includes('visita') || t.includes('in persona') || t.includes('in-person') || t.includes('sede');
+}
+
 function buildGoogleCalendarUrlFromAppointment(appt, customer) {
   const startIso = appt?.when ?? null;
   if (!startIso) return null;
-  const endIso = addMinutes(startIso, 60) ?? startIso;
+  const durationMin = 60;
+  const endIso = addMinutes(startIso, durationMin) ?? startIso;
 
   const start = formatGoogleCalDate(startIso);
   const end = formatGoogleCalDate(endIso);
@@ -1268,7 +1275,12 @@ function buildGoogleCalendarUrlFromAppointment(appt, customer) {
     .filter(Boolean)
     .join('\n');
 
-  const location = [customer?.email, customer?.phone].filter(Boolean).join(' • ');
+  // If it's an in-person meeting, set a location that Google Calendar can resolve/search.
+  // Best initial value is the customer name (can be edited by the user in Calendar).
+  // Otherwise, keep a useful contact "hint".
+  const location = isInPersonAppointment(appt)
+    ? (customerName || '')
+    : [customer?.email, customer?.phone].filter(Boolean).join(' • ');
 
   const url = new URL('https://calendar.google.com/calendar/render');
   url.searchParams.set('action', 'TEMPLATE');
@@ -1276,6 +1288,12 @@ function buildGoogleCalendarUrlFromAppointment(appt, customer) {
   url.searchParams.set('dates', `${start}/${end}`);
   if (details) url.searchParams.set('details', details);
   if (location) url.searchParams.set('location', location);
+
+  // Reminder at the end of the meeting (helpful to fill outcome/next steps).
+  // Note: Google doesn't document full API for render templates; "add" is widely supported.
+  // If unsupported by the current Calendar UI, it will be ignored gracefully.
+  url.searchParams.set('add', 'popup:0');
+
   return url.toString();
 }
 
