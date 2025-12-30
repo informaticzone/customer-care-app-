@@ -1053,6 +1053,35 @@ for (const b of el.navItems) {
 // Customers CRUD (MVP)
 // -----------------------------
 
+let clientsSort = { key: null, dir: 'asc' };
+
+function compareMaybeNumber(a, b) {
+  const aa = String(a ?? '').trim();
+  const bb = String(b ?? '').trim();
+  const na = Number(aa.replace(',', '.'));
+  const nb = Number(bb.replace(',', '.'));
+  const isNum = !Number.isNaN(na) && !Number.isNaN(nb) && aa !== '' && bb !== '';
+  if (isNum) return na - nb;
+  return aa.localeCompare(bb, 'it', { sensitivity: 'base' });
+}
+
+function sortCustomers(list) {
+  if (!clientsSort.key) return list;
+  const dirMul = clientsSort.dir === 'desc' ? -1 : 1;
+  const key = clientsSort.key;
+
+  const getVal = (c) => {
+    if (key === 'name') return c.name ?? '';
+    if (key === 'contact') return [c.email, c.phone].filter(Boolean).join(' • ');
+    if (key === 'status') return c.status ?? '';
+    if (key === 'notes') return c.notes ?? '';
+    if (key === 'createdAt') return c.createdAt ?? '';
+    return '';
+  };
+
+  return list.slice().sort((a, b) => dirMul * compareMaybeNumber(getVal(a), getVal(b)));
+}
+
 function customersFiltered() {
   const q = (el.clientSearch?.value ?? '').trim().toLowerCase();
   const list = db?.customers ?? [];
@@ -1065,8 +1094,15 @@ function customersFiltered() {
 
 function renderClients() {
   if (!isLoggedIn()) return;
-  const headers = ['Nome', 'Contatto', 'Stato', 'Note', 'Azioni'];
-  const rows = customersFiltered();
+  const columns = [
+    { label: 'Nome', key: 'name', sortable: true },
+    { label: 'Contatto', key: 'contact', sortable: true },
+    { label: 'Stato', key: 'status', sortable: true },
+    { label: 'Note', key: 'notes', sortable: true },
+    { label: 'Azioni', key: null, sortable: false }
+  ];
+
+  const rows = sortCustomers(customersFiltered());
 
   const thead = el.clientsTable.querySelector('thead');
   const tbody = el.clientsTable.querySelector('tbody');
@@ -1074,9 +1110,26 @@ function renderClients() {
   tbody.innerHTML = '';
 
   const trH = document.createElement('tr');
-  for (const h of headers) {
+  for (const col of columns) {
     const th = document.createElement('th');
-    th.textContent = h;
+    th.textContent = col.label;
+    if (col.sortable && col.key) {
+      th.style.cursor = 'pointer';
+      th.title = 'Clicca per ordinare';
+      const isActive = clientsSort.key === col.key;
+      if (isActive) {
+        th.textContent = `${col.label} ${clientsSort.dir === 'asc' ? '▲' : '▼'}`;
+      }
+      th.addEventListener('click', () => {
+        if (clientsSort.key === col.key) {
+          clientsSort.dir = clientsSort.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          clientsSort.key = col.key;
+          clientsSort.dir = 'asc';
+        }
+        renderClients();
+      });
+    }
     trH.appendChild(th);
   }
   thead.appendChild(trH);
@@ -1191,6 +1244,48 @@ function parseLocalInputValue(v) {
   return d.toISOString();
 }
 
+async function pickDateTimeIso({ title, initialIso } = {}) {
+  // Uses a native datetime-local picker when <dialog> is supported; fallback to prompt.
+  const init = initialIso ? toLocalInputValue(initialIso) : toLocalInputValue(nowIso());
+
+  if (!('HTMLDialogElement' in window)) {
+    const whenStr = prompt(title || 'Data/Ora:', initialIso ? new Date(initialIso).toLocaleString() : new Date().toLocaleString());
+    if (whenStr == null) return null;
+    const d = new Date(whenStr);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+
+  const dlg = document.createElement('dialog');
+  dlg.style.maxWidth = '520px';
+  dlg.style.width = 'calc(100% - 24px)';
+  dlg.innerHTML = `
+    <form method="dialog" style="display:flex; flex-direction:column; gap:12px;">
+      <h3 style="margin:0;">${(title || 'Seleziona data e ora').replace(/</g, '&lt;')}</h3>
+      <label class="muted" for="cc-dt">Data e ora</label>
+      <input id="cc-dt" class="control" type="datetime-local" required />
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button value="cancel" class="btn">Annulla</button>
+        <button value="ok" class="btn btn-primary">OK</button>
+      </div>
+    </form>
+  `;
+  document.body.appendChild(dlg);
+
+  const input = dlg.querySelector('#cc-dt');
+  if (input) input.value = init;
+
+  const result = await new Promise((resolve) => {
+    dlg.addEventListener('close', () => resolve(dlg.returnValue), { once: true });
+    dlg.showModal();
+  });
+
+  const selected = input?.value ?? '';
+  dlg.remove();
+
+  if (result !== 'ok') return null;
+  return parseLocalInputValue(selected);
+}
+
 function isFuture(iso) {
   if (!iso) return false;
   return new Date(iso).getTime() >= Date.now();
@@ -1301,22 +1396,18 @@ function pickCustomerId(defaultId = null) {
   return customers[n - 1].id;
 }
 
-function createAppointment() {
+async function createAppointment() {
   const customerId = pickCustomerId();
   if (!customerId) return;
 
-  const when = prompt('Data/Ora (es. 2025-12-31 14:30):', new Date().toLocaleString());
+  // Date/time via picker (not free text)
+  const parsedWhen = await pickDateTimeIso({ title: 'Data e ora appuntamento', initialIso: nowIso() });
+  if (!parsedWhen) return;
   const type = prompt('Tipo (chiamata/visita/follow-up):', 'chiamata') ?? '';
   const topic = prompt('Argomento (opzionale):', '') ?? '';
   const outcome = prompt('Esito (opzionale):', '') ?? '';
   const nextActions = prompt('Azioni successive (opzionale):', '') ?? '';
   const notes = prompt('Note (opzionale):', '') ?? '';
-
-  const parsedWhen = (() => {
-    // Try parse common formats. If fails, store raw as now.
-    const d = new Date(when);
-    return Number.isNaN(d.getTime()) ? nowIso() : d.toISOString();
-  })();
 
   db.appointments.unshift({
     id: uid('appt'),
@@ -1334,24 +1425,20 @@ function createAppointment() {
   renderAppointments();
 }
 
-function editAppointment(id) {
+async function editAppointment(id) {
   const a = (db.appointments ?? []).find((x) => x.id === id);
   if (!a) return;
 
   const customerId = pickCustomerId(a.customerId);
   if (!customerId) return;
 
-  const when = prompt('Data/Ora (stringa interpretabile):', a.when ? new Date(a.when).toLocaleString() : '') ?? '';
+  const parsedWhen = await pickDateTimeIso({ title: 'Data e ora appuntamento', initialIso: a.when ?? null });
+  if (!parsedWhen) return;
   const type = prompt('Tipo:', a.type ?? '') ?? a.type;
   const topic = prompt('Argomento:', a.topic ?? '') ?? a.topic;
   const outcome = prompt('Esito:', a.outcome ?? '') ?? a.outcome;
   const nextActions = prompt('Azioni successive:', a.nextActions ?? '') ?? a.nextActions;
   const notes = prompt('Note:', a.notes ?? '') ?? a.notes;
-
-  const parsedWhen = (() => {
-    const d = new Date(when);
-    return Number.isNaN(d.getTime()) ? a.when : d.toISOString();
-  })();
 
   Object.assign(a, {
     customerId,
