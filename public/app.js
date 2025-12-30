@@ -122,8 +122,9 @@ function setQrSyncStatus(message) {
 
 const QR_SYNC_PREFIX = 'CCSYNC1|';
 // Conservative chunk size to make scanning reliable.
-// Keep chunks smaller to avoid overly-dense QRs that are hard to scan.
-const QR_SYNC_CHUNK_SIZE = 650;
+// Phone cameras struggle with very dense QRs. Keep chunks smaller.
+// This increases number of blocks, but improves scan success.
+const QR_SYNC_CHUNK_SIZE = 420;
 
 let qrSyncExportChunks = [];
 let qrSyncExportIndex = 0;
@@ -172,18 +173,18 @@ async function renderQrToCanvas(text) {
   if (!el.qrSyncCanvas) return;
 
   // Keep QR at a predictable size (otherwise long payloads can render huge).
-  // Slightly larger target improves scan reliability for dense codes.
-  const targetPx = 360;
+  // Larger target improves scan reliability for phone cameras.
+  const targetPx = 420;
   el.qrSyncCanvas.width = targetPx;
   el.qrSyncCanvas.height = targetPx;
 
   // Use a conservative scale and let the library fit modules into the fixed canvas.
   // Small margin helps scanning without making it too large.
   await QRCode.toCanvas(el.qrSyncCanvas, text, {
-    // Higher correction helps a bit with imperfect scans.
-    errorCorrectionLevel: 'Q',
-    // Give it a quiet zone.
-    margin: 2,
+    // Lower correction reduces module count (less dense => easier to scan).
+    errorCorrectionLevel: 'M',
+    // Larger quiet zone helps phone scanners.
+    margin: 3,
     width: targetPx,
     color: { dark: '#0b1220', light: '#ffffff' }
   });
