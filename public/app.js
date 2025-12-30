@@ -169,10 +169,18 @@ function parseQrChunkEnvelope(text) {
 
 async function renderQrToCanvas(text) {
   if (!el.qrSyncCanvas) return;
+
+  // Keep QR at a predictable size (otherwise long payloads can render huge).
+  const targetPx = 280;
+  el.qrSyncCanvas.width = targetPx;
+  el.qrSyncCanvas.height = targetPx;
+
+  // Use a conservative scale and let the library fit modules into the fixed canvas.
+  // Small margin helps scanning without making it too large.
   await QRCode.toCanvas(el.qrSyncCanvas, text, {
     errorCorrectionLevel: 'M',
     margin: 1,
-    scale: 6,
+    width: targetPx,
     color: { dark: '#0b1220', light: '#ffffff' }
   });
 }
